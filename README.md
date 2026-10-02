@@ -35,7 +35,7 @@ Both scripts use base R only, with no additional packages. Open a file, set `Sty
 
 ## Licence
 
-The code is released under the Creative Commons Attribution-NonCommercial 4.0 International licence (CC BY-NC 4.0). The article itself is open access under a Creative Commons Attribution (CC BY) licence.
+The code in this repository is licensed under CC BY-NC 4.0 (see the [LICENSE](LICENSE) file). The article itself is open access under a Creative Commons Attribution (CC BY) licence.
 
 ## How to cite
 
