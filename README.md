@@ -97,8 +97,8 @@ The sliders display rounded values for *M*<sub>0</sub> and ι<sub>1</sub>; the e
 
 | File | What it does | Figures |
 |------|--------------|---------|
-| `ISLM_model_SHORT_WEB.R` | Basic (short-run) model, both closures | Figures 2 and 3 with `Stype = 0`, Figure 5 with `Stype = 1` |
-| `ISLM_model_LONG_WEB.R` | Extended model (production function, flexible prices, capital accumulation, private securities) | Figure 7 with `Stype = 0` |
+| [ISLM_model_SHORT_WEB.R](https://github.com/marcoverpas/ISLM_model/blob/main/ISLM_model_LONG_WEB.R) | Basic (short-run) model, both closures | Figures 2 and 3 with `Stype = 0`, Figure 5 with `Stype = 1` |
+| [ISLM_model_LONG_WEB.R](https://github.com/marcoverpas/ISLM_model/blob/main/ISLM_model_SHORT_WEB.R) | Extended model (production function, flexible prices, capital accumulation, private securities) | Figure 7 with `Stype = 0` |
 
 Both scripts use base R only, with no additional packages. Open a file, set `Stype` near the top to choose the experiment (0 = tight money, 1 = expansionary), and run the whole script. The figures are drawn on screen. The other scripts behind the paper (the stability and sensitivity exercises, the static IS-LM diagram and the accounting tables) are available from the author on request.
 
