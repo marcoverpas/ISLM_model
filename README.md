@@ -18,9 +18,9 @@ The conclusion is that the IS-LM model should be questioned as both a teaching a
 
 A free, browser-based version of the basic model lets you change the policy rate, the money supply, government spending, the tax rate and the interest elasticity of investment, and watch the economy respond in real time.
 
-[![Launch the interactive model](https://img.shields.io/badge/launch-interactive%20model-2ea44f?style=for-the-badge)](https://x52gnt-marco-passarella.shinyapps.io/interactive_is-lm/)
+[![Launch the interactive model](https://marcoverpas.github.io/ISLM_model/interactive_IS_LM.html)
 
-Direct link: https://x52gnt-marco-passarella.shinyapps.io/interactive_is-lm/
+Direct link: https://marcoverpas.github.io/ISLM_model/interactive_IS_LM.html
 
 It also works well as a classroom device: students can reproduce the paradoxes and the instability for themselves, rather than taking them on faith.
 
