@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A dynamic (SFC) IS-LM model</title>
+<!--
+  Model (SFC) IS-LM -- Interactive version in HTML/JavaScript
+  Port of the Shiny app (app.R). Same equations, same baseline, same charts.
+  Self-contained: no server and no external libraries. It can be opened
+  directly in a browser or hosted as a static page (e.g. GitHub Pages).
+  Last change: 06/11/2026
+-->
+<style>
+  :root {
+    --text: #333333;
+    --muted: #6b6b6b;
+    --panel: #f5f5f5;
+    --border: #e3e3e3;
+    --accent: #428bca;
+    --track: #e1e4e9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px 24px 32px;
+    background: #ffffff; color: var(--text);
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 14px;
+  }
+  h1 { font-weight: 500; font-size: 30px; margin: 4px 0 18px; }
+  .layout { display: grid; grid-template-columns: minmax(250px, 1fr) 3fr; gap: 24px; align-items: start; }
+  .sidebar {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+    padding: 19px; box-shadow: inset 0 1px 1px rgba(0,0,0,.05);
+  }
+  .group { margin-bottom: 20px; }
+  .group > .label { font-weight: 700; display: block; margin-bottom: 6px; }
+  .radio { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0; cursor: pointer; }
+  .radio input { margin-top: 2px; }
+  .slider-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .value {
+    background: var(--accent); color: #fff; border-radius: 4px;
+    padding: 1px 6px; font-size: 12px; font-variant-numeric: tabular-nums;
+  }
+  .range-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  input[type=range] { width: 100%; margin: 8px 0 2px; accent-color: var(--accent); }
+  .greyed-out { opacity: 0.4; pointer-events: none; }
+  button {
+    font: inherit; padding: 6px 12px; border-radius: 4px; cursor: pointer;
+    border: 1px solid #cccccc; background: #ffffff; color: var(--text);
+  }
+  button:hover { background: #e6e6e6; }
+  .note { font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: 16px; }
+  .charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 10px; }
+  .charts svg { width: 100%; height: auto; display: block; }
+  @media (max-width: 1100px) { .charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 800px) {
+    body { padding: 12px 16px 24px; }
+    h1 { font-size: 24px; }
+    .layout { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px) { .charts { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>A dynamic (SFC) IS-LM model</h1>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="group">
+      <span class="label">Select model type:</span>
+      <label class="radio"><input type="radio" name="modelType" value="0"> Upward-sloping LM (exogenous M)</label>
+      <label class="radio"><input type="radio" name="modelType" value="1" checked> Flat LM (endogenous M)</label>
+    </div>
+    <div id="sliders"></div>
+    <button id="reset" type="button">Reset baseline values</button>
+    <p class="note">New values apply from period 3 onwards. In panel i) the faded curves and the grey dot mark the initial position.</p>
+  </aside>
+
+  <main class="charts" id="charts"></main>
+</div>
+
+<script>
+"use strict";
+
+// MODEL-START ====================================================================
+
+//SET THE COEFFICIENTS (PARAMETERS NOT CONTROLLED BY THE SLIDERS)
+const iota0 = 2;      //Autonomous investment
+const iota2 = 0.05;   //Elasticity of investment to expected demand
+const alpha1 = 0.6;   //Marginal propensity to consume out of disposable income
+const alpha2 = 0.4;   //Marginal propensity to consume out of net wealth
+const lambda0 = 0.1;  //Autonomous share of liquidity demand to net wealth
+const lambda1 = 0.1;  //Elasticity of liquidity demand to disposable income
+const lambda2 = 2;    //Elasticity of liquidity demand to interest rate (absolute value)
+
+// BASELINE VALUES
+// The baseline sits exactly on the threshold of the interest-rate paradox: the tax
+// rate is 0.3, and iota1 is the value at which the steady-state derivative dY*/dr is
+// zero at the baseline interest rate.
+const r0_initial = 0.03;     // Policy rate before period t0
+const G0_initial = 10;       // Government spending before period t0
+const theta_initial = 0.3;   // Tax rate before period t0
+
+// Steady state (closed-form solution of the model, given r, G and theta)
+const ss_k = (1 - theta_initial) / theta_initial;
+const ss_v = (1 - alpha1) / alpha2;
+const ss_b = ss_v * (1 - lambda0 + lambda2 * r0_initial) - lambda1;
+const ss_D = 1 - ss_k * r0_initial * ss_b;
+const YD_initial = ss_k * G0_initial / ss_D;
+
+// Threshold elasticity: iota1 such that dY*/dr = 0
+const iota1_initial = ss_k * YD_initial * (ss_b + r0_initial * ss_v * lambda2) / ss_D;  // = 56.71142
+
+const V_initial = ss_v * YD_initial;
+const Bh_initial = ss_b * YD_initial;
+const L_initial = V_initial - Bh_initial;
+const Y_initial = (YD_initial + iota0 - iota1_initial * r0_initial + G0_initial) / (1 - iota2);
+const I_initial = iota0 - iota1_initial * r0_initial + iota2 * Y_initial;
+const TAX_initial = theta_initial * (Y_initial - I_initial + r0_initial * Bh_initial);
+const M0_initial = L_initial;
+
+const nPeriods = 40;
+
+// Run the model. Arrays are indexed 1..nPeriods, as in R (element 0 is unused).
+// p = {flat, r0, M0, G0, theta, iota1}: new values, applied from period 3 onwards.
+function simulate(p) {
+  const fill = v => new Array(nPeriods + 1).fill(v);
+
+  //FLOWS
+  const I = fill(I_initial), S = fill(0), Y = fill(Y_initial), TAX = fill(TAX_initial);
+  const C = fill(YD_initial), G = fill(G0_initial), YD = fill(YD_initial);
+  const W = fill(Y_initial - I_initial), A = fill(I_initial);
+  //STOCKS
+  const M = fill(M0_initial), L = fill(L_initial), V = fill(V_initial), Bs = fill(V_initial);
+  const Bh = fill(Bh_initial), Bcb = fill(L_initial);
+  //RATES
+  const r = fill(r0_initial);
+  //PARAMETER PATHS
+  const theta_path = fill(theta_initial), iota1_path = fill(iota1_initial);
+
+  for (let i = 2; i <= nPeriods; i++) {
+    let r0, M0, G0, theta, iota1;
+    if (i >= 3) { r0 = p.r0; M0 = p.M0; G0 = p.G0; theta = p.theta; iota1 = p.iota1; }
+    else { r0 = r0_initial; M0 = M0_initial; G0 = G0_initial; theta = theta_initial; iota1 = iota1_initial; }
+    theta_path[i] = theta;
+    iota1_path[i] = iota1;
+
+    for (let it = 1; it <= 200; it++) {
+      // Fiscal policy exogenous variables
+      G[i] = G0;                                                  //Government spending
+      TAX[i] = theta * (W[i] + r[i-1] * Bh[i-1]);                 //Tax revenue
+      // IS variables (flows)
+      I[i] = Math.max(0, iota0 - iota1 * r[i-1] + iota2 * Y[i-1]); //Investment
+      S[i] = YD[i] - C[i];                                        //Saving
+      YD[i] = W[i] + r[i-1] * Bh[i-1] - TAX[i];                   //Disposable income
+      W[i] = Y[i] - A[i];                                         //Distributed income
+      A[i] = I[i];                                                //Retained income (internal funds)
+      Y[i] = C[i] + I[i] + G[i];                                  //National income
+      C[i] = alpha1 * YD[i] + alpha2 * V[i-1];                    //Consumption
+      // LM variables (stocks)
+      L[i] = lambda0 * V[i] + lambda1 * YD[i] - lambda2 * r[i] * V[i];   //Demand for liquidity
+      Bs[i] = Bs[i-1] + G[i] + r[i-1] * (Bs[i-1] - Bcb[i-1]) - TAX[i];  //Supply of T-bills
+      Bcb[i] = Bs[i] - Bh[i];                                     //Central bank's holdings of T-bills
+      Bh[i] = V[i] - L[i];                                        //Households' holdings of T-bills
+      V[i] = V[i-1] + S[i];                                       //Net wealth
+
+      if (p.flat === 1) {
+        // Flat LM equations
+        M[i] = Bcb[i];   //Endogenous money supply
+        r[i] = r0;       //Exogenous interest rate
+      } else {
+        // Upward-sloping LM equations (with zero lower bound)
+        const r_star = (lambda0 * V[i] + lambda1 * YD[i] - M0) / (lambda2 * V[i]);
+        if (Number.isFinite(r_star) && r_star > 0) {
+          r[i] = r_star;   //Endogenous interest rate
+          M[i] = M0;       //Exogenous money supply
+        } else {
+          r[i] = 0;                                   //Interest rate floor
+          M[i] = lambda0 * V[i] + lambda1 * YD[i];    //Money supply = demand for liquidity at r = 0
+        }
+      }
+    }
+  }
+  return { I, S, Y, TAX, C, G, YD, W, A, M, L, V, Bs, Bh, Bcb, r, theta_path, iota1_path };
+}
+
+// MODEL-END ======================================================================
+
+// ------------------------------------------------------------------------------
+// CONTROLS
+// The M0 and iota1 sliders move in discrete steps, so they cannot display the exact
+// baseline values: they show rounded values, and the differences are added back.
+const round = (x, d) => Math.round(x * 10 ** d) / 10 ** d;
+const M0_slider = round(M0_initial, 2), M0_offset = M0_initial - M0_slider;
+const iota1_slider = round(iota1_initial, 1), iota1_offset = iota1_initial - iota1_slider;
+
+const SLIDERS = [
+  { id: "r0",    label: "Interest rate (r<sub>0</sub>)", min: 0, max: 0.10, step: 0.001, value: r0_initial, dec: 3 },
+  { id: "M0",    label: "Money supply (M<sub>0</sub>)", min: round(M0_slider - 2, 2), max: round(M0_slider + 2, 2), step: 0.01, value: M0_slider, dec: 2 },
+  { id: "G0",    label: "Government spending (G<sub>0</sub>)", min: 0, max: 20, step: 0.5, value: G0_initial, dec: 1 },
+  { id: "theta", label: "Tax rate (&theta;)", min: 0.05, max: 0.4, step: 0.01, value: theta_initial, dec: 2 },
+  { id: "iota1", label: "Interest rate elasticity of investment (&iota;<sub>1</sub>)", min: 0, max: 180, step: 0.1, value: iota1_slider, dec: 1 },
+];
+
+const trim = (x, d) => String(Number(x.toFixed(d)));
+const box = document.getElementById("sliders");
+for (const s of SLIDERS) {
+  const g = document.createElement("div");
+  g.className = "group"; g.id = s.id + "_box";
+  g.innerHTML =
+    `<div class="slider-head"><label class="label" for="${s.id}"><b>${s.label}</b></label>` +
+    `<span class="value" id="${s.id}_val"></span></div>` +
+    `<input type="range" id="${s.id}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.value}">` +
+    `<div class="range-ends"><span>${trim(s.min, s.dec)}</span><span>${trim(s.max, s.dec)}</span></div>`;
+  box.appendChild(g);
+}
+
+function readInputs() {
+  const v = id => parseFloat(document.getElementById(id).value);
+  for (const s of SLIDERS) document.getElementById(s.id + "_val").textContent = trim(v(s.id), s.dec);
+  return {
+    flat: parseInt(document.querySelector("input[name=modelType]:checked").value, 10),
+    r0: v("r0"),
+    M0: v("M0") + M0_offset,
+    G0: v("G0"),
+    theta: v("theta"),
+    iota1: Math.max(0, v("iota1") + iota1_offset),
+  };
+}
+
+// ------------------------------------------------------------------------------
+// MINIMAL SVG PLOTTING (mimics R base graphics: 4% axis extension, pretty ticks)
+const NS = "http://www.w3.org/2000/svg";
+const W_ = 400, H_ = 300;                              // viewBox size of each panel
+const MAR = { l: 62, r: 10, t: 34, b: 52 };            // margins around the plot region
+const FS = 15;                                         // base font size (viewBox units)
+
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+// Equivalent of R's pretty(): "nice" tick values (at most about n intervals) covering [lo, hi]
+function pretty(lo, hi, n = 5) {
+  if (hi - lo < 1e-12) { const d = Math.abs(lo) * 0.1 || 1; lo -= d; hi += d; }
+  const raw = (hi - lo) / n, mag = 10 ** Math.floor(Math.log10(raw)), f = raw / mag;
+  const step = (f < Math.SQRT2 ? 1 : f < Math.sqrt(10) ? 2 : f < Math.sqrt(50) ? 5 : 10) * mag;   // same rounding as R
+  const ticks = [];
+  for (let k = Math.floor(lo / step + 1e-9); k <= Math.ceil(hi / step - 1e-9); k++) ticks.push(k * step);
+  const dec = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
+  return { ticks, dec };
+}
+
+let clipId = 0;
+function Panel(container, o) {
+  const svg = el("svg", { viewBox: `0 0 ${W_} ${H_}`, role: "img", "aria-label": o.title });
+  container.appendChild(svg);
+  const pw = W_ - MAR.l - MAR.r, ph = H_ - MAR.t - MAR.b;
+  const ext = ([a, b]) => { const d = (b - a) * 0.04; return [a - d, b + d]; };
+  const [x0, x1] = ext(o.xlim), [y0, y1] = ext(o.ylim);
+  const X = x => MAR.l + (x - x0) / (x1 - x0) * pw;
+  const Y = y => MAR.t + (y1 - y) / (y1 - y0) * ph;
+
+  el("text", { x: MAR.l + pw / 2, y: 20, "text-anchor": "middle", "font-size": FS }, svg).textContent = o.title;
+  el("rect", { x: MAR.l, y: MAR.t, width: pw, height: ph, fill: "none", stroke: "#000", "stroke-width": 1 }, svg);
+
+  // axes
+  const xt = o.xticks || pretty(o.xlim[0], o.xlim[1]);
+  for (const t of xt.ticks) {
+    if (t < x0 || t > x1) continue;
+    el("line", { x1: X(t), x2: X(t), y1: MAR.t + ph, y2: MAR.t + ph + 6, stroke: "#000" }, svg);
+    el("text", { x: X(t), y: MAR.t + ph + 22, "text-anchor": "middle", "font-size": FS - 1 }, svg).textContent = t.toFixed(xt.dec);
+  }
+  const yt = o.yticks || pretty(o.ylim[0], o.ylim[1]);
+  // As R does, labels that would overlap are not printed (every other one is kept)
+  const yin = yt.ticks.filter(t => t >= y0 && t <= y1);
+  const ylen = Math.max(...yin.map(t => t.toFixed(yt.dec).length));
+  const ygap = yin.length > 1 ? Math.abs(Y(yin[0]) - Y(yin[1])) : 1e9;
+  const ythin = ygap < ylen * 8.5 + 6 ? 2 : 1;
+  for (const [k, t] of yin.entries()) {
+    el("line", { x1: MAR.l - 6, x2: MAR.l, y1: Y(t), y2: Y(t), stroke: "#000" }, svg);
+    if (k % ythin) continue;
+    el("text", { x: MAR.l - 10, y: Y(t), "text-anchor": "middle", "font-size": FS - 1,
+                 transform: `rotate(-90 ${MAR.l - 10} ${Y(t)})` }, svg).textContent = t.toFixed(yt.dec);
+  }
+  el("text", { x: MAR.l + pw / 2, y: H_ - 8, "text-anchor": "middle", "font-size": FS - 1 }, svg).textContent = o.xlab;
+  el("text", { x: 14, y: MAR.t + ph / 2, "text-anchor": "middle", "font-size": FS - 1,
+               transform: `rotate(-90 14 ${MAR.t + ph / 2})` }, svg).textContent = o.ylab;
+
+  // plot region (clipped, as in R)
+  const id = "clip" + (++clipId);
+  el("rect", { x: MAR.l, y: MAR.t, width: pw, height: ph }, el("clipPath", { id }, el("defs", {}, svg)));
+  const g = el("g", { "clip-path": `url(#${id})` }, svg);
+
+  const style = (s) => ({ fill: "none", stroke: s.col, "stroke-width": s.lwd || 2.5,
+    "stroke-dasharray": s.dash ? "7 5" : "none", "stroke-linejoin": "round", "stroke-linecap": "round" });
+
+  return {
+    line(xs, ys, s) {   // s: {col, lwd, dash, step}
+      let d = "";
+      for (let k = 0; k < xs.length; k++) {
+        if (s.step && k > 0) d += `L${X(xs[k])},${Y(ys[k - 1])}`;
+        d += (k ? "L" : "M") + X(xs[k]) + "," + Y(ys[k]);
+      }
+      el("path", { d, ...style(s) }, g);
+    },
+    abline(a, b, s) {   // y = a + b x
+      el("line", { x1: X(x0), y1: Y(a + b * x0), x2: X(x1), y2: Y(a + b * x1), ...style(s) }, g);
+    },
+    hline(y, s) { el("line", { x1: X(x0), x2: X(x1), y1: Y(y), y2: Y(y), ...style(s) }, g); },
+    vline(x, s) { el("line", { x1: X(x), x2: X(x), y1: Y(y0), y2: Y(y1), ...style(s) }, g); },
+    point(x, y, col) { el("circle", { cx: X(x), cy: Y(y), r: 4.5, fill: col }, g); },
+    legend(items, pos) {   // items: [{text, col, lwd, dash}], pos: topleft | bottomright | top
+      const lh = 19, seg = 26, gap = 6;
+      const widths = items.map(it => it.text.length * 7.6 + seg + gap);
+      let pts;
+      if (pos === "top") {
+        const tot = widths.reduce((a, b) => a + b, 0) + 14 * (items.length - 1);
+        let x = MAR.l + (pw - tot) / 2;
+        pts = items.map((it, k) => { const p = [x, MAR.t + 16]; x += widths[k] + 14; return p; });
+      } else if (pos === "topleft") {
+        pts = items.map((it, k) => [MAR.l + 10, MAR.t + 16 + k * lh]);
+      } else {   // bottomright
+        const wmax = Math.max(...widths);
+        pts = items.map((it, k) => [MAR.l + pw - wmax - 6, MAR.t + ph - 12 - (items.length - 1 - k) * lh]);
+      }
+      items.forEach((it, k) => {
+        const [x, y] = pts[k];
+        el("rect", { x: x - 3, y: y - 9, width: widths[k] + 4, height: 18, fill: "#ffffff", "fill-opacity": 0.85 }, svg);
+        el("line", { x1: x, x2: x + seg, y1: y, y2: y, ...style(it) }, svg);
+        const t = el("text", { x: x + seg + gap, y: y + 5, "font-size": FS - 1.5 }, svg);
+        t.innerHTML = it.html || it.text;
+      });
+    },
+  };
+}
+
+// ------------------------------------------------------------------------------
+// CHARTS
+const COL = {
+  red1: "#FF0000", purple: "#A020F0", gold2: "#EEC900", orange: "#FFA500", green4: "#008B00",
+  lightblue3: "#9AC0CD", cyan2: "#00EEEE", blue2: "#0000EE", purple3: "#7D26CD",
+  gray20: "#333333", red4: "#8B0000", gray50: "#7F7F7F", gray70: "#B3B3B3",
+  ISold: "rgba(0,0,0,0.25)", LMold: "rgba(255,0,0,0.25)",
+};
+const min = a => Math.min(...a), max = a => Math.max(...a);
+const range = (...arrs) => { const all = arrs.flat(); return [min(all), max(all)]; };
+const seq = (a, b) => Array.from({ length: b - a + 1 }, (_, k) => a + k);
+
+function draw() {
+  const p = readInputs();
+  const flat = p.flat;
+  document.getElementById("M0_box").classList.toggle("greyed-out", flat === 1);
+  document.getElementById("r0_box").classList.toggle("greyed-out", flat === 0);
+
+  const m = simulate(p);
+  const n = nPeriods;
+  const tt = seq(2, n);                    // periods shown in the time-series panels
+  const xs = tt.map((_, k) => k + 1);      // x axis: 1..39, as in R
+  const sel = a => tt.map(i => a[i]);
+
+  // Consistency check (redundant equation), printed to the browser console
+  let error = 0;
+  for (const i of tt) error += (m.M[i] - m.L[i]) ** 2;
+  const aerror = error / (n - 1);
+  console.log((aerror < 0.01 ? "Good news! The model is watertight!" : aerror < 1 ?
+    "Minor issues with model consistency" : "Warning: the model is not fully consistent!") +
+    "  Average error = " + aerror + "  Cumulative error = " + error);
+
+  const box = document.getElementById("charts");
+  box.innerHTML = "";
+  const xlim = [1, n - 1], pound = "£";
+  const ts = (title, y, col, ylim, ylab = pound) => {
+    const P = Panel(box, { title, xlim, ylim, xlab: "Time", ylab });
+    P.line(xs, y, { col, lwd: 3 });
+    return P;
+  };
+
+  //a) Output
+  const Y = sel(m.Y);
+  ts("a) Output", Y, COL.red1, [min(Y) - 1, max(Y) + 1]);
+
+  //b) Interest rate (the axis widens only if the rate leaves the usual 0-10% band)
+  const R = sel(m.r).map(v => v * 100);
+  ts("b) Interest rate", R, COL.purple, range([-1, 11], R), "%");
+
+  //c) Money stock
+  const M = sel(m.M);
+  ts("c) Money supply (stock)", M, COL.gold2, [min(M) - 1, max(M) + 1]);
+
+  //d) T-bills held by private sector
+  const Bh = sel(m.Bh);
+  ts("d) T-bills held by private sector (stock)", Bh, COL.orange, [min(Bh) - 1, max(Bh) + 1]);
+
+  //e) Investment
+  const I = sel(m.I);
+  ts("e) Investment", I, COL.green4, [min(I) - 0.1, max(I) + 0.1]);
+
+  //f) Consumption
+  const C = sel(m.C);
+  ts("f) Consumption", C, COL.lightblue3, [min(C) - 0.1, max(C) + 0.1]);
+
+  //g) Government budget: spending + interest payments vs taxes, with room for the legend
+  const TAX = sel(m.TAX);
+  const GEXP = tt.map(i => m.G[i] + m.r[i - 1] * m.Bh[i - 1]);
+  const [g_lo, g_hi] = range(TAX, GEXP);
+  const g_span = Math.max(g_hi - g_lo, 0.1 * Math.abs(g_hi), 1);
+  const Pg = Panel(box, { title: "g) Government budget", xlim, ylim: [g_lo - 0.5 * g_span, g_hi + 0.08 * g_span], xlab: "Time", ylab: pound });
+  Pg.line(xs, TAX, { col: COL.cyan2, lwd: 3 });
+  Pg.line(xs, GEXP, { col: COL.blue2, lwd: 3, dash: true });
+  Pg.legend([{ text: "Taxes", col: COL.cyan2, lwd: 3 }, { text: "Spending (incl. interest)", col: COL.blue2, lwd: 3, dash: true }], "bottomright");
+
+  //h) Interest rate condition (each period uses the parameters in force in that period)
+  const COND = tt.map(i => m.Bh[i] * (1 - m.theta_path[i]) / m.theta_path[i]);
+  const IOTA = sel(m.iota1_path);
+  const h_hi = Math.max(max(COND), max(IOTA), 1);
+  const Ph = Panel(box, { title: "h) Interest rate condition", xlim, ylim: [0, 1.6 * h_hi], xlab: "Time", ylab: "Value" });
+  Ph.line(xs, COND, { col: COL.orange, lwd: 3 });
+  Ph.line(xs, IOTA, { col: COL.purple3, lwd: 3, step: true });
+  Ph.legend([
+    { text: "Bh × (1 − θ)/θ", html: "<tspan font-style='italic'>B</tspan><tspan font-size='10' dy='4'>h</tspan><tspan dy='-4'> × (1 − θ)/θ</tspan>", col: COL.orange, lwd: 3 },
+    { text: "ι1", html: "<tspan font-style='italic'>ι</tspan><tspan font-size='10' dy='4'>1</tspan>", col: COL.purple3, lwd: 3 },
+  ], "topleft");
+
+  //i) IS-LM (final) equilibrium
+  // Axes anchored to the baseline diagram; they widen only as far as needed to keep
+  // the new equilibrium in view. The baseline curves stay on the chart (faded).
+  const Y_end = m.Y[n], r_end = m.r[n];
+  const RR = Array.from({ length: 49 }, (_, k) => -0.01 + 0.0025 * k);
+  const IS_new = RR.map(rr => alpha1 * m.YD[n] + alpha2 * m.V[n - 1] + m.G[n] + Math.max(0, iota0 - p.iota1 * rr + iota2 * m.Y[n - 1]));
+  const IS_old = RR.map(rr => YD_initial + G0_initial + Math.max(0, iota0 - iota1_initial * rr + iota2 * Y_initial));
+  const [xa, xb] = range(IS_old, IS_new, [Y_end]);
+  const x_pad = 0.04 * (xb - xa);
+  const y_lim = [-1, Math.max(14.5, 100 * r_end + 4)];
+  const Pi = Panel(box, { title: "i) IS-LM (final) equilibrium", xlim: [xa - x_pad, xb + x_pad], ylim: y_lim,
+                          yticks: { ticks: [0, 2, 4, 6, 8, 10], dec: 0 }, xlab: "Output (" + pound + ")", ylab: "Interest rate (%)" });
+  const RRp = RR.map(v => 100 * v), slope = 100 * lambda2 / 200;
+  // baseline curves and equilibrium (faded)
+  Pi.line(IS_old, RRp, { col: COL.ISold, lwd: 2 });
+  if (flat === 1) Pi.hline(100 * r0_initial, { col: COL.LMold, lwd: 2 });
+  else Pi.abline(100 * r0_initial - slope * Y_initial, slope, { col: COL.LMold, lwd: 2 });   // slope lambda2/200: illustrative shortcut
+  Pi.point(Y_initial, 100 * r0_initial, COL.gray70);
+  // guide lines through the final equilibrium
+  Pi.vline(Y_end, { col: COL.gray50, lwd: 1, dash: true });
+  Pi.hline(100 * r_end, { col: COL.gray50, lwd: 1, dash: true });
+  // final curves and equilibrium
+  Pi.line(IS_new, RRp, { col: COL.gray20, lwd: 3 });
+  if (flat === 1) Pi.hline(100 * r_end, { col: COL.red4, lwd: 3 });
+  else Pi.abline(100 * r_end - slope * Y_end, slope, { col: COL.red4, lwd: 3 });
+  Pi.point(Y_end, 100 * r_end, "#000000");
+  Pi.legend([{ text: "IS", col: COL.gray20, lwd: 3 }, { text: "LM", col: COL.red4, lwd: 3 }, { text: "Initial", col: COL.gray70, lwd: 2 }], "top");
+}
+
+// ------------------------------------------------------------------------------
+// EVENTS
+for (const s of SLIDERS) document.getElementById(s.id).addEventListener("input", draw);
+document.querySelectorAll("input[name=modelType]").forEach(e => e.addEventListener("change", draw));
+document.getElementById("reset").addEventListener("click", () => {
+  for (const s of SLIDERS) document.getElementById(s.id).value = s.value;   // closure is left unchanged
+  draw();
+});
+draw();
+</script>
+</body>
+</html>
